@@ -1,0 +1,27 @@
+cd crud-app
+
+cat > .gitignore << 'EOF'
+# Variables de entorno (contienen contraseñas)
+.env
+backend/.env
+frontend/.env*
+
+# Dependencias
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Build del frontend
+frontend/dist/
+
+# Logs
+*.log
+logs/
+
+# Docker volúmenes locales
+mysql_data/
+
+# OS
+.DS_Store
+Thumbs.db
+EOF
