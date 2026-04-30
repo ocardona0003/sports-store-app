@@ -1,0 +1,3 @@
+# Ignorar las imágenes subidas pero mantener la estructura de carpetas
+productos/*
+!productos/.gitkeep

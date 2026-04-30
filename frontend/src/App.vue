@@ -1,26 +1,31 @@
 <template>
   <div>
-    <!-- Tab nav -->
     <nav class="app-nav">
       <div class="nav-inner">
         <button :class="['nav-tab', { active: tab === 'tienda' }]" @click="tab = 'tienda'">
           🏆 Tienda Deportiva
         </button>
+        <button :class="['nav-tab', { active: tab === 'admin' }]" @click="tab = 'admin'">
+          ⚙️ Administración
+        </button>
         <button :class="['nav-tab', { active: tab === 'empleados' }]" @click="tab = 'empleados'">
-          👥 Gestión Empleados
+          👥 Empleados
         </button>
       </div>
     </nav>
 
-    <TiendaView  v-if="tab === 'tienda'" />
+    <TiendaView   v-if="tab === 'tienda'" />
+    <AdminView    v-else-if="tab === 'admin'" />
     <EmpleadosView v-else />
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue';
-import TiendaView   from './views/TiendaView.vue';
+import TiendaView    from './views/TiendaView.vue';
+import AdminView     from './views/AdminView.vue';
 import EmpleadosView from './views/EmpleadosView.vue';
+
 const tab = ref('tienda');
 </script>
 
