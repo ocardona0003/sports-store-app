@@ -1,21 +1,21 @@
 <template>
   <div class="tienda">
 
-    <!-- ── Store header ───────────────────────────────────────────────────────── -->
+    <!-- ── Store header ──────────────────────────────────────────────────── -->
     <header class="store-header">
       <div class="store-header-inner">
         <div class="store-brand">
-          <span class="store-logo">🏆</span>
+          <span class="store-logo">🛒</span>
           <div>
-            <h1 class="store-title">Sports Store</h1>
-            <p class="store-sub">Equipamiento deportivo de primera</p>
+            <h1 class="store-title">Compra Carrito</h1>
+            <p class="store-sub">Tu tienda deportiva de confianza</p>
           </div>
         </div>
         <div class="header-actions">
-          <button class="btn btn-ghost hist-btn" @click="showHistory = true">
+          <button class="btn btn-ghost hist-btn" @click="openHistory">
             📜 Mis compras
           </button>
-          <button class="cart-fab" @click="cartOpen = true">
+          <button class="cart-fab" @click="openCart" :title="`Ver carrito (${cartCount} items)`">
             🛒
             <span v-if="cartCount > 0" class="cart-bubble">{{ cartCount }}</span>
           </button>
@@ -23,7 +23,7 @@
       </div>
     </header>
 
-    <!-- ── Filters bar ────────────────────────────────────────────────────────── -->
+    <!-- ── Filters bar ────────────────────────────────────────────────────── -->
     <div class="filters-bar">
       <div class="filters-inner">
         <div class="search-wrap">
@@ -31,7 +31,7 @@
           <input v-model="search" class="input search-input"
                  placeholder="Buscar productos…"
                  @input="onSearch" />
-          <button v-if="search" class="clear-btn" @click="search=''; fetchProducts()">✕</button>
+          <button v-if="search" class="clear-btn" @click="clearSearch">✕</button>
         </div>
 
         <div class="cats-row">
@@ -45,11 +45,14 @@
           </button>
         </div>
 
-        <p class="result-count">{{ pagination.total }} producto{{ pagination.total !== 1 ? 's' : '' }}</p>
+        <p class="result-count">
+          {{ pagination.total }} producto{{ pagination.total !== 1 ? 's' : '' }}
+          <span v-if="activeCat"> en <strong>{{ activeCat }}</strong></span>
+        </p>
       </div>
     </div>
 
-    <!-- ── Product grid ───────────────────────────────────────────────────────── -->
+    <!-- ── Product grid ────────────────────────────────────────────────────── -->
     <main class="store-main">
 
       <!-- Loading skeleton -->
@@ -76,7 +79,7 @@
         <span style="font-size:2.5rem">📭</span>
         <p>No se encontraron productos{{ search ? ` para "${search}"` : '' }}.</p>
         <button v-if="activeCat || search" class="btn btn-ghost btn-sm"
-                @click="search=''; activeCat=''; fetchProducts()">Ver todos</button>
+                @click="clearSearch(); activeCat=''; fetchProducts()">Ver todos</button>
       </div>
 
       <!-- Grid -->
@@ -106,20 +109,20 @@
 
     </main>
 
-    <!-- ── Cart Drawer ─────────────────────────────────────────────────────────── -->
+    <!-- ── Cart Drawer ─────────────────────────────────────────────────────── -->
     <CartDrawer
       :open="cartOpen"
       :items="cartItems"
       :total="cartTotal"
       :updating="cartUpdating"
-      @close="cartOpen = false"
+      @close="closeCart"
       @increase="increaseItem"
       @decrease="decreaseItem"
       @remove="removeCartItem"
       @checkout="openCheckout"
     />
 
-    <!-- ── Checkout Modal ──────────────────────────────────────────────────────── -->
+    <!-- ── Checkout Modal ──────────────────────────────────────────────────── -->
     <CheckoutModal
       v-if="showCheckout"
       :items="cartItems"
@@ -129,7 +132,7 @@
       @confirm="doCheckout"
     />
 
-    <!-- ── Success Modal ───────────────────────────────────────────────────────── -->
+    <!-- ── Success Modal ───────────────────────────────────────────────────── -->
     <OrderSuccessModal
       v-if="lastOrder"
       :orden="lastOrder"
@@ -137,13 +140,13 @@
       @view-history="lastOrder = null; showHistory = true"
     />
 
-    <!-- ── History Modal ───────────────────────────────────────────────────────── -->
+    <!-- ── History Modal ───────────────────────────────────────────────────── -->
     <OrderHistory
       v-if="showHistory"
       @close="showHistory = false"
     />
 
-    <!-- ── Toasts ──────────────────────────────────────────────────────────────── -->
+    <!-- ── Toasts ──────────────────────────────────────────────────────────── -->
     <div class="toast-wrap">
       <div v-for="t in toasts" :key="t.id" :class="`toast ${t.type}`">
         <span>{{ t.type === 'success' ? '✅' : '❌' }}</span>
@@ -154,40 +157,44 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { productosApi, carritoApi, ordenesApi } from '../services/tienda.js';
-import ProductCard      from '../components/ProductCard.vue';
-import CartDrawer       from '../components/CartDrawer.vue';
-import CheckoutModal    from '../components/CheckoutModal.vue';
+import ProductCard       from '../components/ProductCard.vue';
+import CartDrawer        from '../components/CartDrawer.vue';
+import CheckoutModal     from '../components/CheckoutModal.vue';
 import OrderSuccessModal from '../components/OrderSuccessModal.vue';
-import OrderHistory     from '../components/OrderHistory.vue';
+import OrderHistory      from '../components/OrderHistory.vue';
+import logger            from '../utils/logger.js';
 
-// ── Session ID (simula usuario anónimo) ─────────────────────────────────────
+// ── Session ID ────────────────────────────────────────────────────────────────
 const SESSION_KEY = 'sports_session_id';
 const getSessionId = () => {
   let id = localStorage.getItem(SESSION_KEY);
   if (!id) {
     id = 'sess_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
     localStorage.setItem(SESSION_KEY, id);
+    logger.info('Nueva sesión de compras creada', { sessionId: id });
   }
   return id;
 };
 const sessionId = getSessionId();
 
-// ── Products state ───────────────────────────────────────────────────────────
-const products   = ref([]);
-const categorias = ref([]);
-const loading    = ref(false);
-const fetchError = ref('');
-const search     = ref('');
-const activeCat  = ref('');
-const page       = ref(1);
-const pagination = ref({ total: 0, totalPages: 1 });
-const addingId   = ref(null);
+// ── Products state ────────────────────────────────────────────────────────────
+const products    = ref([]);
+const categorias  = ref([]);
+const loading     = ref(false);
+const fetchError  = ref('');
+const search      = ref('');
+const activeCat   = ref('');
+const page        = ref(1);
+const pagination  = ref({ total: 0, totalPages: 1 });
+const addingId    = ref(null);
 
 const fetchProducts = async () => {
   loading.value    = true;
   fetchError.value = '';
+  logger.info('Cargando productos', { page: page.value, categoria: activeCat.value || 'Todas', search: search.value || '(sin filtro)' });
+
   try {
     const res = await productosApi.getAll({
       search: search.value, categoria: activeCat.value,
@@ -196,55 +203,129 @@ const fetchProducts = async () => {
     products.value   = res.data;
     categorias.value = res.categorias || [];
     pagination.value = res.pagination;
+
+    logger.info('Productos cargados', {
+      total:      res.pagination.total,
+      pagina:     res.pagination.page,
+      retornados: res.data.length,
+      categorias: res.categorias,
+    });
   } catch (e) {
     fetchError.value = e.message;
+    logger.error('Error al cargar productos', { error: e.message });
   } finally {
     loading.value = false;
   }
 };
 
+const clearSearch = () => {
+  logger.debug('Búsqueda limpiada');
+  search.value = '';
+  fetchProducts();
+};
+
 let debTimer = null;
 const onSearch = () => {
   clearTimeout(debTimer);
-  debTimer = setTimeout(() => { page.value = 1; fetchProducts(); }, 350);
+  debTimer = setTimeout(() => {
+    logger.debug('Búsqueda ejecutada', { query: search.value });
+    page.value = 1;
+    fetchProducts();
+  }, 350);
 };
 
-const setCat = (cat) => { activeCat.value = cat; page.value = 1; fetchProducts(); };
-const changePage = (p) => { page.value = p; fetchProducts(); };
+const setCat = (cat) => {
+  logger.info('Filtro de categoría aplicado', { categoria: cat || 'Todas' });
+  activeCat.value = cat;
+  page.value = 1;
+  fetchProducts();
+};
+
+const changePage = (p) => {
+  logger.debug('Cambio de página', { de: page.value, a: p });
+  page.value = p;
+  fetchProducts();
+};
 
 const pageRange = computed(() => {
   const tot = pagination.value.totalPages, cur = page.value;
   const arr = [];
-  for (let i = Math.max(1, cur-2); i <= Math.min(tot, cur+2); i++) arr.push(i);
+  for (let i = Math.max(1, cur - 2); i <= Math.min(tot, cur + 2); i++) arr.push(i);
   return arr;
 });
 
-// ── Cart state ───────────────────────────────────────────────────────────────
-const cartItems   = ref([]);
-const cartTotal   = ref(0);
-const cartOpen    = ref(false);
+// ── Cart state ────────────────────────────────────────────────────────────────
+const cartItems    = ref([]);
+const cartTotal    = ref(0);
+const cartOpen     = ref(false);
 const cartUpdating = ref(false);
 
-const cartCount = computed(() => cartItems.value.reduce((s, i) => s + i.cantidad, 0));
+const cartCount  = computed(() => cartItems.value.reduce((s, i) => s + i.cantidad, 0));
 const cartQtyFor = (productId) => cartItems.value.find(i => i.producto_id === productId)?.cantidad || 0;
 
 const fetchCart = async () => {
+  logger.debug('Recuperando carrito', { sessionId });
   try {
     const res = await carritoApi.get(sessionId);
     cartItems.value = res.data;
     cartTotal.value = res.total;
-  } catch {}
+    logger.info('Carrito recuperado', {
+      sessionId,
+      items:       res.data.length,
+      totalItems:  res.data.reduce((s, i) => s + i.cantidad, 0),
+      total:       res.total,
+      contenido:   res.data.map(i => ({ nombre: i.nombre, cantidad: i.cantidad, precio: i.precio, subtotal: +(i.precio * i.cantidad).toFixed(2) })),
+    });
+  } catch (e) {
+    logger.warn('No se pudo recuperar el carrito', { error: e.message });
+  }
+};
+
+const openCart = () => {
+  cartOpen.value = true;
+  logger.info('Carrito abierto', {
+    sessionId,
+    items:   cartItems.value.length,
+    total:   cartTotal.value,
+    detalle: cartItems.value.map(i => ({
+      nombre:   i.nombre,
+      cantidad: i.cantidad,
+      precio:   i.precio,
+      subtotal: +(i.precio * i.cantidad).toFixed(2),
+    })),
+  });
+};
+
+const closeCart = () => {
+  cartOpen.value = false;
+  logger.debug('Carrito cerrado', { sessionId });
 };
 
 const addToCart = async (prod) => {
   addingId.value = prod.id;
+  logger.info('Agregando producto al carrito', {
+    productId: prod.id,
+    nombre:    prod.nombre,
+    precio:    prod.precio,
+    stockDisponible: prod.stock,
+    sessionId,
+  });
+
   try {
     const res = await carritoApi.add(sessionId, { producto_id: prod.id, cantidad: 1 });
     cartItems.value = res.data;
     cartTotal.value = res.total;
     toast(res.message || 'Agregado al carrito.', 'success');
+
+    logger.info('Producto agregado exitosamente', {
+      productId:  prod.id,
+      nombre:     prod.nombre,
+      nuevoTotal: res.total,
+      totalItems: res.data.reduce((s, i) => s + i.cantidad, 0),
+    });
   } catch (e) {
     toast(e.message, 'error');
+    logger.error('Error al agregar al carrito', { productId: prod.id, nombre: prod.nombre, error: e.message });
   } finally {
     addingId.value = null;
   }
@@ -253,70 +334,140 @@ const addToCart = async (prod) => {
 const increaseItem = async (item) => {
   const cartItem = cartItems.value.find(i => i.producto_id === (item.producto_id || item.id));
   if (!cartItem) return addToCart(item);
+
+  logger.debug('Aumentando cantidad en carrito', { producto: cartItem.nombre, cantidadActual: cartItem.cantidad, nuevaCantidad: cartItem.cantidad + 1 });
   cartUpdating.value = true;
   try {
     const res = await carritoApi.update(sessionId, cartItem.id, { cantidad: cartItem.cantidad + 1 });
-    cartItems.value = res.data; cartTotal.value = res.total;
-  } catch (e) { toast(e.message, 'error'); }
-  finally { cartUpdating.value = false; }
+    cartItems.value = res.data;
+    cartTotal.value = res.total;
+    logger.info('Cantidad aumentada', { producto: cartItem.nombre, nuevaCantidad: cartItem.cantidad + 1, total: res.total });
+  } catch (e) {
+    toast(e.message, 'error');
+    logger.error('Error al aumentar cantidad', { error: e.message, producto: cartItem.nombre });
+  } finally {
+    cartUpdating.value = false;
+  }
 };
 
 const decreaseItem = async (item) => {
   const cartItem = cartItems.value.find(i => i.producto_id === (item.producto_id || item.id));
   if (!cartItem) return;
   if (cartItem.cantidad <= 1) return removeCartItem(cartItem);
+
+  logger.debug('Reduciendo cantidad en carrito', { producto: cartItem.nombre, cantidadActual: cartItem.cantidad, nuevaCantidad: cartItem.cantidad - 1 });
   cartUpdating.value = true;
   try {
     const res = await carritoApi.update(sessionId, cartItem.id, { cantidad: cartItem.cantidad - 1 });
-    cartItems.value = res.data; cartTotal.value = res.total;
-  } catch (e) { toast(e.message, 'error'); }
-  finally { cartUpdating.value = false; }
+    cartItems.value = res.data;
+    cartTotal.value = res.total;
+    logger.info('Cantidad reducida', { producto: cartItem.nombre, nuevaCantidad: cartItem.cantidad - 1, total: res.total });
+  } catch (e) {
+    toast(e.message, 'error');
+    logger.error('Error al reducir cantidad', { error: e.message });
+  } finally {
+    cartUpdating.value = false;
+  }
 };
 
 const removeCartItem = async (item) => {
+  logger.info('Eliminando producto del carrito', { itemId: item.id, nombre: item.nombre, cantidad: item.cantidad });
   cartUpdating.value = true;
   try {
     const res = await carritoApi.remove(sessionId, item.id);
-    cartItems.value = res.data; cartTotal.value = res.total;
+    cartItems.value = res.data;
+    cartTotal.value = res.total;
     toast('Producto eliminado del carrito.', 'success');
-  } catch (e) { toast(e.message, 'error'); }
-  finally { cartUpdating.value = false; }
+    logger.info('Producto eliminado del carrito', {
+      nombre:           item.nombre,
+      itemsRestantes:   res.data.length,
+      nuevoTotal:       res.total,
+    });
+  } catch (e) {
+    toast(e.message, 'error');
+    logger.error('Error al eliminar del carrito', { error: e.message, nombre: item.nombre });
+  } finally {
+    cartUpdating.value = false;
+  }
 };
 
-// ── Checkout ─────────────────────────────────────────────────────────────────
+// ── Checkout ──────────────────────────────────────────────────────────────────
 const showCheckout = ref(false);
 const checkingOut  = ref(false);
 const lastOrder    = ref(null);
 
-const openCheckout = () => { cartOpen.value = false; showCheckout.value = true; };
+const openCheckout = () => {
+  cartOpen.value     = false;
+  showCheckout.value = true;
+  logger.info('Checkout iniciado', {
+    sessionId,
+    items:   cartItems.value.length,
+    total:   cartTotal.value,
+    detalle: cartItems.value.map(i => ({
+      nombre:   i.nombre,
+      cantidad: i.cantidad,
+      precio:   i.precio,
+      subtotal: +(i.precio * i.cantidad).toFixed(2),
+    })),
+  });
+};
 
 const doCheckout = async ({ nombre, email, notas }) => {
   checkingOut.value = true;
+  logger.info('Procesando compra', {
+    sessionId,
+    cliente:      nombre,
+    email,
+    items:        cartItems.value.length,
+    total:        cartTotal.value,
+    productos:    cartItems.value.map(i => ({ nombre: i.nombre, cantidad: i.cantidad, precio: i.precio })),
+  });
+
   try {
     const res = await ordenesApi.checkout({
-      session_id: sessionId,
+      session_id:     sessionId,
       cliente_nombre: nombre,
-      cliente_email: email,
+      cliente_email:  email,
       notas,
     });
+
     showCheckout.value = false;
     cartItems.value    = [];
     cartTotal.value    = 0;
     lastOrder.value    = res.data;
-    // Recargar stock actualizado
-    fetchProducts();
+
+    logger.info('¡Compra completada exitosamente!', {
+      ordenId:  res.data.id,
+      cliente:  nombre,
+      email,
+      total:    res.data.total,
+      items:    res.data.items?.length || 0,
+    });
+
+    fetchProducts(); // actualizar stock
     toast('¡Pedido realizado! Revisa tu email.', 'success');
   } catch (e) {
     toast(e.message, 'error');
+    logger.error('Error al procesar la compra', {
+      sessionId,
+      cliente: nombre,
+      error:   e.message,
+      items:   cartItems.value.map(i => i.nombre),
+    });
   } finally {
     checkingOut.value = false;
   }
 };
 
-// ── History ──────────────────────────────────────────────────────────────────
+// ── History ───────────────────────────────────────────────────────────────────
 const showHistory = ref(false);
 
-// ── Toasts ───────────────────────────────────────────────────────────────────
+const openHistory = () => {
+  showHistory.value = true;
+  logger.info('Historial de compras abierto', { sessionId });
+};
+
+// ── Toasts ────────────────────────────────────────────────────────────────────
 const toasts = ref([]);
 const toast = (msg, type = 'success') => {
   const id = Date.now();
@@ -324,7 +475,21 @@ const toast = (msg, type = 'success') => {
   setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, 3500);
 };
 
-onMounted(() => { fetchProducts(); fetchCart(); });
+// ── Ciclo de vida ─────────────────────────────────────────────────────────────
+onMounted(() => {
+  logger.info('Vista de Tienda montada', {
+    sessionId,
+    timestamp:  new Date().toISOString(),
+    userAgent:  navigator.userAgent,
+  });
+  fetchProducts();
+  fetchCart();
+});
+
+onUnmounted(() => {
+  logger.debug('Vista de Tienda desmontada');
+  if (debTimer) clearTimeout(debTimer);
+});
 </script>
 
 <style scoped>

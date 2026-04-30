@@ -1,62 +1,38 @@
-const r = async (res) => {
-  const d = await res.json();
-  if (!res.ok) throw new Error(d.error || 'Error en la solicitud');
-  return d;
-};
+import { apiFetch } from '../stores/auth.js';
 
-const h = { 'Content-Type': 'application/json' };
-
-// ── Categorías ──────────────────────────────────────────────────────────────
+// ── Categorías (requieren auth admin) ──────────────────────────────────────
 export const categoriasApi = {
-  getAll:  (params = {}) => fetch('/api/categorias?' + new URLSearchParams(params)).then(r),
-  getOne:  (id)           => fetch(`/api/categorias/${id}`).then(r),
-  create:  (body)         => fetch('/api/categorias',       { method: 'POST',   headers: h, body: JSON.stringify(body) }).then(r),
-  update:  (id, body)     => fetch(`/api/categorias/${id}`, { method: 'PUT',    headers: h, body: JSON.stringify(body) }).then(r),
-  remove:  (id)           => fetch(`/api/categorias/${id}`, { method: 'DELETE' }).then(r),
+  getAll:  (params = {}) => apiFetch('/api/categorias?' + new URLSearchParams(params)),
+  getOne:  (id)           => apiFetch(`/api/categorias/${id}`),
+  create:  (body)         => apiFetch('/api/categorias',       { method: 'POST',   body: JSON.stringify(body) }),
+  update:  (id, body)     => apiFetch(`/api/categorias/${id}`, { method: 'PUT',    body: JSON.stringify(body) }),
+  remove:  (id)           => apiFetch(`/api/categorias/${id}`, { method: 'DELETE' }),
 };
 
-// ── Productos admin ─────────────────────────────────────────────────────────
-// Construye un FormData con los campos del producto + imagen si existe
+// ── Productos admin (requieren auth admin) ──────────────────────────────────
 const buildFormData = (fields, imageFile) => {
   const fd = new FormData();
-
-  // Campos de texto
-  Object.entries(fields).forEach(([key, val]) => {
-    if (val !== null && val !== undefined && key !== 'imagen_url') {
-      fd.append(key, val);
-    }
+  Object.entries(fields).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && k !== 'imagen_url') fd.append(k, v);
   });
-
-  if (imageFile) {
-    if (imageFile instanceof File) {
-      // Archivo real: multer lo procesará en el backend
-      fd.append('imagen', imageFile);
-    } else if (imageFile._externalUrl) {
-      // URL externa: se envía como campo de texto
-      fd.append('imagen_url', imageFile._externalUrl);
-    }
+  if (imageFile instanceof File) {
+    fd.append('imagen', imageFile);
+  } else if (imageFile?._externalUrl) {
+    fd.append('imagen_url', imageFile._externalUrl);
   }
-
   return fd;
 };
 
 export const adminProductosApi = {
   getAll: (params = {}) =>
-    fetch('/api/productos?' + new URLSearchParams({ ...params, admin: 'true' })).then(r),
+    apiFetch('/api/productos?' + new URLSearchParams({ ...params, admin: 'true' })),
 
   create: (fields, imageFile) =>
-    fetch('/api/productos/admin', {
-      method: 'POST',
-      body: buildFormData(fields, imageFile),
-      // No poner Content-Type: el navegador lo setea con el boundary correcto para multipart
-    }).then(r),
+    apiFetch('/api/productos/admin', { method: 'POST', body: buildFormData(fields, imageFile) }),
 
   update: (id, fields, imageFile) =>
-    fetch(`/api/productos/admin/${id}`, {
-      method: 'PUT',
-      body: buildFormData(fields, imageFile),
-    }).then(r),
+    apiFetch(`/api/productos/admin/${id}`, { method: 'PUT', body: buildFormData(fields, imageFile) }),
 
-  remove:      (id) => fetch(`/api/productos/admin/${id}`,        { method: 'DELETE' }).then(r),
-  removeImage: (id) => fetch(`/api/productos/admin/${id}/imagen`, { method: 'DELETE' }).then(r),
+  remove:      (id) => apiFetch(`/api/productos/admin/${id}`,        { method: 'DELETE' }),
+  removeImage: (id) => apiFetch(`/api/productos/admin/${id}/imagen`, { method: 'DELETE' }),
 };
